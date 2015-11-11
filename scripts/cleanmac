@@ -1,0 +1,21 @@
+#!/bin/bash
+BASEDIR=`pwd`;
+
+function discover {
+  rm -f $1/._*;
+  for d in $1/*; do
+    if [ -d $d ]; then
+      discover "$d";
+    fi
+  done
+}
+
+## MAIN ##
+rm -f ._*;
+
+for d in `ls`; do
+  if [ -d $d ]; then
+    discover $d;
+  fi
+done
+

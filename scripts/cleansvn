@@ -1,0 +1,36 @@
+#!/bin/bash
+BASEDIR=`pwd`;
+SCRDIRS="";
+
+function exist {
+  f=$1/$2;
+  if [ -e "$f" ]; then
+    echo $f;
+    return 1;
+  else
+    return 0;
+  fi
+}
+
+function discover {
+  for d in $1; do
+    if [ -d $d ]; then
+      if [ `exist $d ".svn"` ]; then
+        SRCDIRS="${SRCDIRS} $d";
+      fi
+      discover "$d/*";
+    fi
+  done
+}
+
+## MAIN ##
+for f in `ls | grep -v -E ".svn"`; do
+  discover $f;
+done
+
+for d in ${SRCDIRS}; do
+  echo $d;
+  rm -fr $d/.svn;
+done
+
+rm -fr .svn

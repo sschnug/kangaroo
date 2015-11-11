@@ -1,0 +1,3 @@
+#!/bin/bash
+pmap  `ps | grep $1 | awk '{print $1;}'` | tail -1 | awk '{print $2;}'
+

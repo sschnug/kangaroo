@@ -1,0 +1,85 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n SquareDimen -i MaxIter [-t TabuTenure]" << endl << endl;
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength SquareDimen [CellValuesRowMajorWiseWhenNoViolation]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int n = 0;	//	Square dimension.
+int c = 0;	// 	Iteration count.
+int t = 0;	//	Tabu length.
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-n")
+		n = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-i")
+		c = args[i+1].toInt();
+}
+if (n == 0 || c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+Solver<LS> m();
+range Size = 1..n*n;
+
+var{int} magic[Size](m,Size);
+RandomPermutation distr(Size);
+forall(i in Size) magic[i] := distr.get();
+
+ConstraintSystem<LS> S(m);
+forall(i in 1..n) S.post(sum(j in 1..n) magic[(i-1)*n + j]  == n*(1+ n*n)/2);
+forall(i in 1..n) S.post(sum(j in 1..n) magic[(j-1)*n + i] == n*(1+ n*n)/2);
+S.post(sum(i in 1..n) magic[(i - 1)*n + i] == n*(1+ n*n)/2);
+S.post(sum(i in 1..n) magic[(i-1)*n + n - i + 1] == n*(1+ n*n)/2);
+m.close();
+
+int it = 1;
+int tabu[Size] = 0;
+int bestvio = S.violations();
+while (bestvio > 0 && it < c) {
+	selectMin(i in Size: tabu[i] <= it, j in Size: i < j && tabu[j] <= it)
+		(S.getSwapDelta(magic[i],magic[j]))
+	{
+		magic[i] :=: magic[j]; 
+		tabu[i] = it + t;
+		tabu[j] = it + t;
+	}
+	if (S.violations() < bestvio)
+		bestvio = S.violations();
+	it++;
+}
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << n;
+if (bestvio == 0)
+	forall(i in Size) cout << " " << magic[i];
+cout << endl;
+

@@ -1,0 +1,272 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+/*
+m   Min M
+int Table[] =
+{
+0,	0,
+1, 	0,
+2 ,	1,
+3 ,	3,
+4 ,	6,
+5 ,	11,
+6 ,	17,
+7 ,	25,
+8 ,	34,
+9 ,	44,
+10, 55,
+11, 72,
+12, 85,
+13, 106,
+14, 127,
+15, 151,
+16, 177,
+17, 199,
+18, 216,
+19, 246,
+20, 283,
+21, 333,
+22, 356,
+23,	372,
+24,	425,
+25,	480,
+26,	492,
+27,	553,
+28,	585,
+29,	623,
+30,	680,
+31,	747,
+32,	784,
+33,	859,
+34,	938,
+35,	987,
+36,	1005,
+37,	1099,
+38,	1146,
+39,	1252,
+40,	1282,
+41,	1305,
+42,	1397,
+43,	1507,
+44,	1596,
+45,	1687,
+46,	1703,
+47,	1804,
+48,	1887,
+49,	1958,
+50,	2094,
+51,	2190,
+52,	2270,
+53,	2347,
+54,	2373,
+55,	2598,
+56,	2725,
+57,	2773,
+58,	2851,
+59,	2911,
+60,	3019,
+61,	3134,
+62,	3215,
+63,	3391,
+64,	3527,
+65,	3593,
+66,	3757,
+67,	3819,
+68,	3956,
+69,	4145,
+70,	4217,
+71,	4330,
+72,	4473,
+73,	4513,
+74,	4753,
+75,	4982,
+76,	5089,
+77,	5204,
+78,	5299,
+79,	5408,
+80,	5563,
+81,	5717,
+82,	5814,
+83,	6020,
+84,	6159,
+85,	6410,
+86,	6537,
+87,	6708,
+88,	6745,
+89,	6778,
+90,	6967,
+91,	7542,
+92,	7617,
+93,	7726,
+94,	7884,
+95,	7967,
+96,	8121,
+97,	8357,
+98,	8462,
+99,	8540,
+100, 8831,
+101, 8897,
+102, 9218,
+103, 9408,
+104, 9581,
+105, 9884,
+106, 10135,
+107, 10241,
+108, 10415,
+109, 10583,
+110, 10767,
+111, 11108,
+112, 11292,
+113, 11423,
+114, 11764,
+115, 12212,
+116, 12412,
+117, 12517,
+118, 12741,
+119, 12911,
+120, 13089,
+121, 13280,
+122, 13521,
+123, 13761,
+124, 13948,
+125, 14055,
+126, 14348,
+127, 14460,
+128, 14821,
+129, 15075,
+130, 15275,
+131, 15548,
+132, 15893,
+133, 16192,
+134, 16296,
+135, 16622,
+136, 16766,
+137, 17031,
+138, 17124,
+139, 17579,
+140, 17938,
+141, 18601,
+142, 18751,
+143, 18941,
+144, 19123,
+145, 19325,
+146, 19628,
+147, 19757,
+148, 20037,
+149, 20265,
+150, 20521
+};
+
+*/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n NumTicks -d MaxValue -i MaxIter [-t TabuTenure -a Approach]" << endl << endl;	
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuTenure NumTicks MaxValue [TickPositions]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int n = 0;	// Number of ticks a0,a1,...,an
+int d = 0;	// Max tick value.
+int c = 0;	// Iteration count.
+int t = 0;	// Tabu tenure.
+int a = 1;	// Approach
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-n")
+		n = args[i+1].toInt();
+	else if (args[i] == "-d")
+		d = args[i+1].toInt();
+	else if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-a")
+		a = args[i+1].toInt();
+}
+
+if (n == 0 || c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+Solver<LS> m();
+UniformDistribution distr(1..d);
+
+var{int} ticks[0..n](m, 0..d);
+set{int} tickset = {};
+
+tickset.insert(0);
+while(tickset.getSize() != n)
+{
+	int i = distr.get();
+	if (!tickset.contains(i))
+		tickset.insert(i);
+}
+tickset.insert(d+1);
+
+forall(i in 0..n) ticks[i] := tickset.atRank(i);
+ 
+ConstraintSystem<LS> S(m);
+S.post(alldifferent(all(i in 0..(n-2), j in 1..(n-1): i < j) abs(ticks[j]-ticks[i])));
+m.close();
+
+int it = 1;
+int tabu[1..(n-1)] = 0;
+int bestvio = S.violations();
+if (a == 0)	//	static range.
+{
+	while (S.violations() > 0 && it < c) {
+		selectMax(i in 1..(n-1): tabu[i] <= it)(S.violations(ticks[i])) 
+		 	selectMin(v in (1..d))(S.getAssignDelta(ticks[i],v))
+			{
+				ticks[i] := v;      
+				tabu[i] = it + t;
+			}
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+		it++;
+	}
+}
+else	//	dynamic range
+{
+	while (S.violations() > 0 && it < c) {
+		selectMax(i in 1..(n-1): tabu[i] <= it)(S.violations(ticks[i])) 
+			selectMin(v in (ticks[i-1] + 1)..(ticks[i+1] - 1))(S.getAssignDelta(ticks[i],v))
+			{
+				ticks[i] := v;      
+				tabu[i] = it + t;
+			}
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+		it++;
+	}
+}
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << n << " " << d;
+if (bestvio == 0) 
+	forall(i in 0..(n-1)) cout << " " << ticks[i];
+cout << endl; 
+

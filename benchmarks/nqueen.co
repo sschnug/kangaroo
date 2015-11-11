@@ -1,0 +1,102 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n NumQueen -i MaxIter [-a Approach]" << endl << endl;	
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "NumQueen [QueenPositionsWhenNoViolation]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int n = 0;	//	Number of queens
+int c = 0;	// 	Iteration count.
+int a = 0;	//	Model 0: set-based non-zero normal.
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-n")
+		n = args[i+1].toInt();
+	else if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-a")
+		a = args[i+1].toInt();	
+}
+if (n == 0 || c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+Solver<LS> m();
+range Size = 1..n;
+var{int} queen[Size](m,Size);
+
+UniformDistribution distr(Size);
+forall(i in Size) queen[i] := distr.get();
+
+int it = 1;
+int bestvio;
+if (a == 0)
+{
+	ConstraintSystem<LS> S(m);
+	S.post(alldifferent(queen));	
+	S.post(alldifferent(all(i in Size) queen[i] + i));
+	S.post(alldifferent(all(i in Size) queen[i] - i));
+	var{int} varVlts[i in Size] = S.violations(queen[i]);
+	var{int} maxVlts(m) <- max(i in Size) varVlts[i];
+	var{set{int}} MostViolatedQueens(m) <- setof(i in Size) (varVlts[i] == maxVlts);
+	m.close();
+	bestvio = S.violations();
+	while (S.violations() > 0 && it < c) {
+		 select(i in MostViolatedQueens)
+			selectMin(v in Size)(S.getAssignDelta(queen[i],v))
+				queen[i] := v; 
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+		it++;
+	}
+}
+else 
+{
+	ConstraintSystem<LS> S(m);
+	S.post(alldifferent(queen));	
+	S.post(alldifferent(all(i in Size) queen[i] + i));
+	S.post(alldifferent(all(i in Size) queen[i] - i));
+	m.close();
+	bestvio = S.violations();
+	while (bestvio > 0 && it < c) {
+		 selectMax(i in Size)(S.violations(queen[i]))
+			selectMin(v in Size)(S.getAssignDelta(queen[i],v))
+				queen[i] := v; 
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+		it++;
+	}
+}
+
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << n;
+if (bestvio == 0) 
+	forall(i in Size) cout << " " << queen[i];
+cout << endl;

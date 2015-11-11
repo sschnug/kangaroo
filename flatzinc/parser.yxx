@@ -1,0 +1,859 @@
+/* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+
+/**
+ * Authors:
+ *     Duc Nghia Pham <duc-nghia.pham@nicta.com.au>
+ *     Hakim Newton   <hakim.newton@nicta.com.au>
+ *
+ * Modified from Gecode's flatzinc-skeleton-1.1 to work with Kangaroo
+ * Completely rewrote the grammar from scratch
+ */
+
+/*
+ *  Main authors:
+ *     Guido Tack <tack@gecode.org>
+ *
+ *  Copyright:
+ *     Guido Tack, 2007
+ *
+ *  Last modified:
+ *     $Date: 2006-12-11 03:27:31 +1100 (Mon, 11 Dec 2006) $ by $Author: schulte $
+ *     $Revision: 4024 $
+ *
+ *  This file is part of Gecode, the generic constraint
+ *  development environment:
+ *     http://www.gecode.org
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining
+ *  a copy of this software and associated documentation files (the
+ *  "Software"), to deal in the Software without restriction, including
+ *  without limitation the rights to use, copy, modify, merge, publish,
+ *  distribute, sublicense, and/or sell copies of the Software, and to
+ *  permit persons to whom the Software is furnished to do so, subject to
+ *  the following conditions:
+ *
+ *  The above copyright notice and this permission notice shall be
+ *  included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ */
+
+%pure-parser
+%parse-param {void *parm}
+%{
+#define YYPARSE_PARAM parm
+#define YYLEX_PARAM static_cast<FlatZinc::ParserState*>(parm)->yyscanner
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
+//#include "cbls/globals/idx.hh"
+//#include "cbls/structs/idx.hh"
+
+#include "flatzinc.hpp"
+#include "parser.hpp"
+
+using namespace std;
+
+int yyparse(void*);
+int yylex(YYSTYPE*, void* scanner);
+int yylex_init (void** scanner);
+int yylex_destroy (void* scanner);
+int yyget_lineno (void* scanner);
+void yyset_extra (void* user_defined ,void* yyscanner );
+
+extern int yydebug;
+
+using namespace FlatZinc;
+
+void yyerror(void* parm, const char *str) {
+	ParserState* pp = static_cast<ParserState*>(parm);
+	pp->err << "Error: " << str
+			<< " in line no. " << yyget_lineno(pp->yyscanner)
+			<< std::endl;
+	pp->hadError = true;
+}
+
+void yyassert(FlatZinc::ParserState* pp, bool cond, const char* str) {
+	if (!cond) {
+		pp->err << "Error: " << str
+				<< " in line no. " << yyget_lineno(pp->yyscanner)
+				<< std::endl;
+		pp->hadError = true;
+	}
+}
+
+
+/*
+ * The main program
+ *
+ */
+
+namespace FlatZinc {
+
+	FlatZincModel *parse(const std::string& filename, std::ostream& err,
+						 unsigned int rndSeed, FlatZincModel *fzs) {
+		std::ifstream file;
+		file.open(filename.c_str());
+		if (!file.is_open()) {
+			err << "Cannot open file " << filename << endl;
+			return NULL;
+		}
+		std::string s = string(istreambuf_iterator<char>(file),istreambuf_iterator<char>());
+
+		if (fzs == NULL) {
+			fzs = new FlatZincModel();
+		}
+		if ( rndSeed ) fzs->setRandomSeed(rndSeed);
+
+		ParserState pp(s, err, fzs);
+
+		yylex_init(&pp.yyscanner);
+		yyset_extra(&pp, pp.yyscanner);
+		// yydebug = 1;
+		std::cout << "Parse file: " << filename << "\n" << std::flush;
+		yyparse(&pp);
+
+		if (pp.yyscanner)
+			yylex_destroy(pp.yyscanner);
+		return pp.hadError ? NULL : pp.fzm;
+	}
+
+	FlatZincModel* parse(std::istream& is, std::ostream& err,
+						 unsigned int rndSeed, FlatZincModel* fzs) {
+
+		std::string s = string(istreambuf_iterator<char>(is), istreambuf_iterator<char>());
+
+		if (fzs == NULL) {
+			fzs = new FlatZincModel();
+		}
+		if ( rndSeed ) fzs->setRandomSeed(rndSeed);
+
+		ParserState pp(s, err, fzs);
+
+		yylex_init(&pp.yyscanner);
+		yyset_extra(&pp, pp.yyscanner);
+		// yydebug = 1;
+		yyparse(&pp);
+
+		if (pp.yyscanner)
+			yylex_destroy(pp.yyscanner);
+		return pp.hadError ? NULL : pp.fzm;
+	}
+
+}
+
+%}
+
+%union { bool bValue; double dValue; int iValue; char* sValue;
+	std::string*                              stValue;
+	emu::b1<kangaroo::Int,xmm>*          		iPair;
+	emu::b1<kangaroo::Flt,xmm>*          		fPair;
+	emu::b1<kangaroo::Int,xmm>*          		iList;
+	FlatZinc::ExprSpec*                       exprSpec;
+	FlatZinc::TypeSpec*                       typeSpec;
+	FlatZinc::AnnSpec*                        annSpec;
+	FlatZinc::Annotations*                    anns;
+}
+
+%error-verbose
+
+%token <iValue> FZ_INT_CONST FZ_BOOL_CONST
+%token <dValue> FZ_FLOAT_CONST
+%token <sValue> FZ_STRING_CONST
+
+%token <sValue> FZ_ID FZ_U_ID
+
+%token FZ_ANNOTATION
+%token FZ_ANY
+%token FZ_ARRAY
+%token FZ_BOOL
+%token FZ_CASE
+%token FZ_COLONCOLON
+%token FZ_CONSTRAINT
+%token FZ_DIFF
+%token FZ_DIV
+%token FZ_DOTDOT
+%token FZ_ELSE
+%token FZ_ELSEIF
+%token FZ_ENDIF
+%token FZ_ENUM
+%token FZ_FLOAT
+%token FZ_FUNCTION
+%token FZ_IF
+%token FZ_IN
+%token FZ_INCLUDE
+%token FZ_INT
+%token FZ_INTERSECT
+%token FZ_LET
+%token FZ_LIST
+%token FZ_MAXIMIZE
+%token FZ_MINIMIZE
+%token FZ_MOD
+%token FZ_NOT
+%token FZ_OF
+%token FZ_SATISFY
+%token FZ_SUBSET
+%token FZ_SUPERSET
+%token FZ_OUTPUT
+%token FZ_PAR
+%token FZ_PREDICATE
+%token FZ_RECORD
+%token FZ_SEMICOLON
+%token FZ_SET
+%token FZ_SHOW
+%token FZ_SHOWCOND
+%token FZ_SOLVE
+%token FZ_STRING
+%token FZ_SYMDIFF
+%token FZ_TEST
+%token FZ_THEN
+%token FZ_TUPLE
+%token FZ_TYPE
+%token FZ_UNION
+%token FZ_VARIANT_RECORD
+%token FZ_VAR
+%token FZ_WHERE
+%token FZ_XOR
+
+
+%type <typeSpec> par_var_type
+%type <iPair>    array_range
+%type <iPair>    int_range
+%type <fPair>    float_range
+%type <iList>    int_set int_list
+%type <exprSpec> expr array_expr expr_list
+%type <sValue>   pred_ann_id var_par_id
+%type <stValue>  objfn
+%type <annSpec>  annotation
+%type <anns>     annotations annotation_list
+
+
+%%
+
+/********************************/
+/* main goal and item lists     */
+/********************************/
+
+/***
+ * flatzinc_model ::=	[pred_decl⋆]	[param_decl⋆]	[var_decl⋆]	[constraint⋆]	solve_goal
+ */
+//model : pred_decl_list param_var_decl_list constraint_list solve_goal
+model : param_var_decl_list constraint_list solve_goal
+
+/* [pred_decl⋆] */
+//pred_decl_list:
+//		/* empty */
+//		{ }
+//	|	pred_decl_list_head
+
+//pred_decl_list_head:
+//		pred_decl
+//	|	pred_decl_list_head pred_decl
+
+
+/* [param_decl⋆] [var_decl⋆] */
+param_var_decl_list:
+		/* empty */
+	|	param_var_decl_list_head
+
+param_var_decl_list_head:
+		param_var_decl
+	|	param_var_decl_list_head param_var_decl
+
+/* [constraint⋆] */
+constraint_list:
+		/* emtpy */
+	|	constraint_list_head
+
+constraint_list_head:
+		constraint
+	|	constraint_list_head constraint
+
+
+/***************************************************/
+/* predicate declarations                          */
+/***************************************************/
+
+/*
+ * pred_decl ::= predicate	identifier(pred_param,...);
+ */
+//pred_decl:
+//		FZ_PREDICATE FZ_ID '(' pred_param_list ')' FZ_SEMICOLON
+
+/* (pred_param,...) */
+//pred_param_list:
+//		/* empty */
+//		{ }
+//	|	pred_param_list_head list_tail
+
+//pred_param_list_head:
+//		pred_param
+//	|	pred_param_list_head ',' pred_param
+
+/* list_tail */
+//list_tail : | ','
+
+/*
+ * pred_param ::= pred_param_type: pred_ann_id
+ */
+//pred_param:
+//		pred_param_type ':' pred_ann_id
+
+/*
+ * pred_param_type ::= par_pred_param_type | var_pred_param_type
+ */
+//pred_param_type:
+//		par_pred_param_type
+//	|	var_pred_param_type
+
+/*
+ * par_pred_param_type ::= par_type
+ *	| float_const..float_const
+ *	| int_const..int_const
+ *	| {int_const,...}
+ *	| set of int_const..int_const
+ *	| set of {int_const,...}
+ *	| array [index_set] of float_const..float_const
+ *	| array [index_set] of int_const..int_const
+ *	| array [index_set] of {int_const,...}
+ *	| array [index_set] of set of int_const..int_const
+ *	| array [index_set] of set of {int_const,...}
+ */
+//par_pred_param_type:
+//		par_type
+//	|	float_range
+//	|	int_range
+//	|	int_set
+//	|	FZ_SET FZ_OF int_range
+//	|	FZ_SET FZ_OF int_set
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF float_range
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF int_range
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF int_set
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF FZ_SET FZ_OF int_range
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF FZ_SET FZ_OF int_set
+//	|	array_range float_range
+//	|	array_range int_range
+//	|	array_range int_set
+//	|	array_range FZ_SET FZ_OF int_range
+//	|	array_range FZ_SET FZ_OF int_set
+
+/*
+ * var_pred_param_type ::= var_type
+ *	| var set of int
+ *	| array [index_set] of var set of int
+ */
+//var_pred_param_type:
+//		var_type
+//	|	FZ_VAR FZ_SET FZ_OF FZ_INT
+//	|	FZ_ARRAY '[' FZ_INT ']' FZ_OF FZ_VAR FZ_SET FZ_OF FZ_INT
+//	|	FZ_ARRAY '[' index_set ']' FZ_OF FZ_VAR FZ_SET FZ_OF FZ_INT
+
+
+/***************************************************/
+/* simple_type declarations                        */
+/***************************************************/
+
+/* float_const..float_const */
+float_range:
+		FZ_FLOAT_CONST FZ_DOTDOT FZ_FLOAT_CONST
+		{
+			$$ = new emu::b1<kangaroo::Flt,xmm>(2);
+			$$->append($1);
+			$$->append($3);
+		}
+
+/* int_const..int_const */
+int_range:
+		FZ_INT_CONST FZ_DOTDOT FZ_INT_CONST
+		{
+			$$ = new emu::b1<kangaroo::Int,xmm>(2);
+			$$->append($1);
+			$$->append($3);
+		}
+
+/* {int_const,...} */
+int_set:
+		'{' int_list '}'
+		{
+			$$ = $2;
+		}
+
+int_list:
+		FZ_INT_CONST
+		{
+			$$ = new emu::b1<kangaroo::Int,xmm>(1);
+			$$->annex($1);
+		}
+	|	int_list ',' FZ_INT_CONST
+		{
+			$$ = $1;
+			$$->annex($3);
+		}
+
+/***************************************************/
+/* parameter and variable :: type declarations     */
+/***************************************************/
+
+/* array [index_set] of ...
+ * index_set ::= 1..int_const | int
+ *	--- int is only allowed in predicate declarations.
+ */
+array_range:
+		FZ_ARRAY '[' int_range ']' FZ_OF
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyassert(pp, $3->item(0) == 1, "An array index_set has to start with 1.");
+			$$ = $3;
+		}
+
+par_var_type:
+	/*
+	 * par_type ::= bool
+	 *	| float
+	 *	| int
+	 *	| set of int
+	 *	| array [index_set] of bool
+	 *	| array [index_set] of float
+	 *	| array [index_set] of int
+	 *	| array [index_set] of set of int
+	 */
+		FZ_BOOL
+		{
+			$$ = new FlatZinc::BoolTypeSpec(FlatZinc::KFZ_PAR);
+		}
+	|	FZ_FLOAT
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_PAR);
+		}
+	|	FZ_INT
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_PAR);
+		}
+	|	FZ_SET FZ_OF FZ_INT
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: par_type: set of int.");
+		}
+	|	array_range FZ_BOOL
+		{
+			$$ = new FlatZinc::BoolTypeSpec(FlatZinc::KFZ_PAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_FLOAT
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_PAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_INT
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_PAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_SET FZ_OF FZ_INT
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: par_type: array of set of int.");
+			delete $1;
+		}
+	/*
+	 * var_type ::= var bool
+	 *	| var float
+	 *	| var float_const..float_const
+	 *	| var int
+	 *	| var int_const..int_const
+	 *	| var {int const,...}
+	 *	| var set of int_const..int_const
+	 *	| var set of {int_const,...}
+	 *	| array [index_set] of var bool
+	 *	| array [index_set] of var float
+	 *	| array [index_set] of var float_const..float_const
+	 *	| array [index_set] of var int
+	 *	| array [index_set] of var int_const..int_const
+	 *	| array [index_set] of var {int_const,...}
+	 *	| array [index_set] of var set of int_const..int_const
+	 *	| array [index_set] of var set of {int_const,...}
+	 */
+	|	FZ_VAR FZ_BOOL
+		{
+			$$ = new FlatZinc::BoolTypeSpec(FlatZinc::KFZ_VAR);
+		}
+	|	FZ_VAR FZ_FLOAT
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_VAR);
+		}
+	|	FZ_VAR float_range
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_VAR, $2->item(0), $2->item(1));
+			delete $2;
+		}
+	|	FZ_VAR FZ_INT
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_VAR);
+		}
+	|	FZ_VAR int_range
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_VAR, $2->item(0), $2->item(1));
+			delete $2;
+		}
+	|	FZ_VAR int_set
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: {int_const, ...}.");
+			delete $2;
+		}
+	|	FZ_VAR FZ_SET FZ_OF int_range
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: set of int_const..int_const.");
+			delete $4;
+		}
+	|	FZ_VAR FZ_SET FZ_OF int_set
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: set of {int_const, ...}.");
+			delete $4;
+		}
+	|	array_range FZ_VAR FZ_BOOL
+		{
+			$$ = new FlatZinc::BoolTypeSpec(FlatZinc::KFZ_VAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_VAR FZ_FLOAT
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_VAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_VAR float_range
+		{
+			$$ = new FlatZinc::FloatTypeSpec(FlatZinc::KFZ_VAR, $1, $3->item(0), $3->item(1));
+			delete $1;	delete $3;
+		}
+	|	array_range FZ_VAR FZ_INT
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_VAR, $1);
+			delete $1;
+		}
+	|	array_range FZ_VAR int_range
+		{
+			$$ = new FlatZinc::IntTypeSpec(FlatZinc::KFZ_VAR, $1, $3->item(0), $3->item(1));
+			delete $1;	delete $3;
+		}
+	|	array_range FZ_VAR int_set
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: array of {int_const, ...}.");
+			delete $1;	delete $3;
+		}
+	|	array_range FZ_VAR FZ_SET FZ_OF int_range
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: array of set of int_const..int_const.");
+			delete $1;	delete $5;
+		}
+	|	array_range FZ_VAR FZ_SET FZ_OF int_set
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			yyerror(pp, "Not yet supported:: var_type: array of set of {int_const, ...}.");
+			delete $1;	delete $5;
+		}
+
+
+/***************************************************/
+/* expression declarations                         */
+/***************************************************/
+
+/*
+ * pred_ann_id ::= [[A−Za−z]][[A−Za−z0−9_]]⋆
+ */
+pred_ann_id:
+		FZ_ID
+		{
+			$$ = $1;
+		}
+
+/*
+ * var_par_id ::= _⋆[[A−Za−z]][[A−Za−z0−9_]]⋆
+ */
+var_par_id:
+		FZ_ID
+		{
+			$$ = $1;
+		}
+	|	FZ_U_ID
+		{
+			$$ = $1;
+		}
+
+/*
+ * expr ::= bool_const
+ *	| float_const
+ *	| int_const
+ *	| set_const
+ *	| var_par_id
+ *	| var_par_id[int_const]
+ *	| array_expr
+ *	| annotation
+ *	| "...string constant..."
+ *	--- Annotation and string expressions are only permitted in annotation arguments.
+ *  --- set_const ::= int_const..int_const	| {int_const,...}
+ */
+expr:
+		FZ_BOOL_CONST
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setBoolVal($1);
+		}
+	|	FZ_FLOAT_CONST
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setFloatVal($1);
+		}
+	|	FZ_INT_CONST
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setIntVal($1);
+		}
+	|	int_range
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setIntRange($1);
+		}
+	|	int_set
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setIntSet($1);
+		}
+	/*
+	 * An identifier can be an annotation in the annotation mode.
+	 * This will be handle when processing the annotation
+	 */
+	|	var_par_id
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setIdVal($1);
+			free($1);
+		}
+	|	var_par_id '[' FZ_INT_CONST ']'
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setIdVal( FlatZinc::elem_id($1, $3) );
+			free($1);
+		}
+	|	array_expr
+		{
+			$$ = $1;
+		}
+	/* An annotation with args */
+	|	pred_ann_id '(' expr_list ')'
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setAnnVal( new AnnSpec($1, $3) );
+			free($1);
+		}
+	|	FZ_STRING_CONST
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setStringVal($1);
+			free($1);
+		}
+
+/*
+ * array_expr ::= [] | [expr,...]
+ */
+array_expr:
+		'[' ']'
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setArrayEmptyVal();
+		}
+	|	'[' expr_list ']'
+		{
+			$$ = $2;
+		}
+
+/* expr,... */
+expr_list:
+		expr
+		{
+			$$ = new FlatZinc::ExprSpec();
+			$$->setArrayFirstVal($1);
+		}
+	|	expr_list ',' expr
+		{
+			$1->setArrayNextVal($3);
+			$$ = $1;
+		}
+
+
+/***************************************************/
+/* parameter and variable declarations             */
+/***************************************************/
+
+/*
+ * param_var_decl ::=
+ *    par_type: var_par_id = expr;
+ *	    --- expr must be a bool_const, float_const, int_const, set_const, or an array thereof.
+ *
+ *  | var_type: var_par_id annotations	[= expr];
+ *	    --- Any vars in assignments must be declared earlier.
+ */
+param_var_decl:
+		par_var_type ':' var_par_id annotations	FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			if ( $1->objType == FlatZinc::KFZ_VAR ) {
+#if ! defined(NDEBUG)
+				cerr << "variable '" << $3 <<  "'" << endl;
+#endif
+				if ( !pp->hadError ) {
+					pp->fzm->declVariable($3, $1, $4);
+				}
+			} else if ( $1->objType == FlatZinc::KFZ_PAR ) {
+				yyerror(pp, "A parameter must have a default value!");
+			}
+			delete $1;	free($3);	delete $4;
+		}
+	|	par_var_type ':' var_par_id annotations	'=' expr FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			if ( $1->objType == FlatZinc::KFZ_VAR ) {
+#if ! defined(NDEBUG)
+				cerr << "variable '" << $3 <<  "'" << " with expr = " << $6 << endl;
+#endif
+				if ( !pp->hadError ) {
+					pp->fzm->declVariable($3, $1, $4, $6);
+				}
+			} else if ( $1->objType == FlatZinc::KFZ_PAR ) {
+#if ! defined(NDEBUG)
+				cerr << "param '" << $3 << "'" << endl;
+#endif
+				yyassert(pp, $4->empty(), "A parameter cannot have annotation(s)!");
+				if ( !pp->hadError ) {
+					pp->fzm->declConstant($3, $1, $6);
+				}
+			}
+			delete $1;	free($3);	delete $4;	//delete $6; // $6 (expr) will be deleted by flatzinc.cpp
+		}
+
+
+/***************************************************/
+/* constraint declarations                         */
+/***************************************************/
+
+/*
+ * constraint ::= constraint pred_ann_id(expr,...)	annotations;
+ */
+constraint:
+		FZ_CONSTRAINT pred_ann_id '(' expr_list ')' annotations FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+#if ! defined(NDEBUG)
+			cerr << "constraint '" << $2 <<  "' :: " << $4 << endl;
+#endif
+			if ( !pp->hadError ) {
+				pp->fzm->postConstraint($2, $4, $6);
+			}
+			free($2);	delete $6;	/* memory deallocation of $4 is handled in postConstraint() */
+		}
+
+
+/***************************************************/
+/* solver declaration                              */
+/***************************************************/
+
+/*
+ * solve_goal ::= solve annotations satisfy;
+ *	| solve annotations minimize objfn;
+ *	| solve annotations maximize objfn;
+ *	--- objfn must be a var name or var array element.
+ */
+solve_goal:
+		FZ_SOLVE annotations FZ_SATISFY FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			pp->fzm->postSolver(KFZ_SAT, NULL, $2);
+			delete $2;
+		}
+	|	FZ_SOLVE annotations FZ_MINIMIZE objfn FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			pp->fzm->postSolver(KFZ_MIN, $4, $2);
+			delete $2;	delete $4;
+		}
+	|	FZ_SOLVE annotations FZ_MAXIMIZE objfn FZ_SEMICOLON
+		{
+			ParserState* pp = static_cast<ParserState*>(parm);
+			pp->fzm->postSolver(KFZ_MAX, $4, $2);
+			delete $2;	delete $4;
+		}
+
+/*
+ *	--- objfn must be a var name or var array element.
+ */
+objfn:
+		var_par_id
+		{
+			$$ = new std::string($1);
+			free($1);
+		}
+	|	var_par_id '[' FZ_INT_CONST ']'
+		{
+			$$ = FlatZinc::elem_id($1, $3);
+			free($1);
+		}
+
+/***************************************************/
+/* annotation declarations                         */
+/***************************************************/
+
+/*
+ * annotations ::= [:: annotation]⋆
+ */
+annotations:
+		/* empty */
+		{
+			$$ = new FlatZinc::Annotations();
+		}
+	|	annotation_list
+		{
+			$$ = $1;
+		}
+
+annotation_list:
+		FZ_COLONCOLON annotation
+		{
+			$$ = new FlatZinc::Annotations();
+			$$->addAnn($2);
+		}
+	|	annotation_list FZ_COLONCOLON annotation
+		{
+			$$ = $1;
+			$$->addAnn($3);
+		}
+
+/*
+ * annotation ::= pred_ann_id	| pred_ann_id(expr,...)
+ *	--- Whether an identifier is an annotation or a variable name can be identified from its type.
+ *	--- FlatZinc does not permit overloading of names.
+ */
+annotation:
+		pred_ann_id
+		{
+			$$ = new FlatZinc::AnnSpec($1);
+			free($1);
+		}
+	|	pred_ann_id '(' expr_list ')'
+		{
+			$$ = new FlatZinc::AnnSpec($1, $3);
+			free($1);
+		}
+

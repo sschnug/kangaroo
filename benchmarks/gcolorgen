@@ -1,0 +1,12 @@
+#! /bin/sh
+COLOR=$1
+PREDGE=$2
+VERT=$3
+SEED=$4
+
+Folder=$(echo $0 | sed -r s/[[:alnum:]\.-]+$//)
+if [ -z $Folder ]; then
+	Folder='.'
+fi
+echo 0 $SEED 3 $VERT $COLOR 0 1 $PREDGE 0 '\n' | $Folder/graphcolor/generator $Folder/graphcolor/graphbuffer.txt > /dev/null 2> /dev/null
+grep -v "c"  $Folder/graphcolor/graphbuffer.txt  | sed "s/[[:alpha:]+]//" | sed "s/edge /$COLOR $PREDGE\n/"

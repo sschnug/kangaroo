@@ -1,0 +1,169 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -i MaxIter [-t TabuLength -a Approach]" << endl << endl;	
+	cout << "Input:" << endl;
+	cout << "Length Width MaxDim MinDim Count VesselLengthAndWidths" << endl << endl;
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength Length Width MaxDim MinDim Count VesselLengthAndWidths [VesselXandYandDirsWhenNoViolation]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int c = 0;		//	Iteration count.
+int t = 0;		//	Tabu length.
+int a = 0;		//	Approach
+
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-a")
+		a = args[i+1].toInt();
+}
+if (c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+
+int Length = cin.getInt();
+int Width = cin.getInt();
+int MaxDim = cin.getInt();
+int MinDim = cin.getInt();
+int Count = cin.getInt();
+
+if (Length ==0 || Width ==0 || MaxDim==0 || MinDim==0 || 
+	Count == 0 || Length < Width || MaxDim < MinDim)
+{
+	cout << endl;
+	cout << "Error in input values." << endl;
+	cout << endl;
+	return;
+}
+
+
+Solver<LS> m();
+range Size = 1..Count;
+
+int Lengths[Size];
+int Widths[Size];
+
+UniformDistribution distx(0..Length);
+UniformDistribution disty(0..Width);
+UniformDistribution distd(0..1);
+
+var{int} Vars[1..3*Count](m, 0..Length);
+
+forall(i in Size)
+{
+	Lengths[i] = cin.getInt();
+	Widths[i] = cin.getInt();
+	if (Lengths[i] == 0 || Widths[i] == 0)
+	{
+		cout << endl;
+		cout << "Error in input values." << endl;
+		cout << endl;
+		return;
+	}
+
+	Vars[i] := distx.get();
+	Vars[Count + i] := disty.get();
+	Vars[Count + Count + i] := distd.get();
+}
+
+var{int} lp[i in Size](m) <- Vars[Count + Count + i] == 1 ? Lengths[i] : Widths[i];
+var{int} wp[i in Size](m) <- Vars[Count + Count + i] == 1 ? Widths[i] : Lengths[i];
+
+var{int} xp[i in Size](m) <- Vars[i] + lp[i];
+var{int} yp[i in Size](m) <- Vars[Count+i] + wp[i];
+
+ConstraintSystem<LS> S(m);
+if (a == 0) // Option 1
+{
+	range SizeC = 1..( Count*(Count-1) ) * 2;
+	var{bool} NonOverlap[SizeC](m, 0..1);
+	forall(i in Size, j in Size: i<j) 
+	{
+		int tt = ((i-1)*(2*Count-i))/2 + (j-i);
+		NonOverlap[(tt - 1) * 4 + 1] <- Vars[j] >= xp[i];
+		NonOverlap[(tt - 1) * 4 + 2] <- xp[j] <= Vars[i];
+		NonOverlap[(tt - 1) * 4 + 3] <- Vars[Count+j] >= yp[i];
+		NonOverlap[(tt - 1) * 4 + 4] <- yp[j] <= Vars[Count+i];
+	}
+	forall(i in Size)  S.post(xp[i] <= Length && yp[i] <= Width);
+	forall(i in Size, j in Size: i<j) 
+	{
+		int tt = ((i-1)*(2*Count-i))/2 + (j-i);
+		S.post(NonOverlap[(tt - 1) * 4 + 1] == 1 || NonOverlap[(tt - 1) * 4 + 2] == 1 || 
+				NonOverlap[(tt - 1) * 4 + 3 ] == 1 || NonOverlap[(tt - 1) * 4 + 4] == 1);
+	}
+}
+else if (a == 1) // Option 2 
+{
+	forall(i in Size, j in Size: i<j) 
+		S.post(Vars[j] >= xp[i] || xp[j] <= Vars[i] || 
+				Vars[Count+j] >= yp[i] || yp[j] <= Vars[Count+i]);
+}
+else // Option 3
+{
+	range SizeC = 1..( Count*(Count-1) ) / 2;
+	var{bool} NonOverlap[SizeC](m, 0..1);
+	forall(i in Size, j in Size: i<j) 
+		NonOverlap[((i-1)*(2*Count-i))/2 + (j-i)] <- 
+			(Vars[j] >= xp[i] || xp[j] <= Vars[i] || 
+				Vars[Count+j] >= yp[i] || yp[j] <= Vars[Count+i]);
+	forall(k in SizeC) S.post(NonOverlap[k] == 1);
+}
+m.close();
+
+int it = 1;
+int tabu[1..3*Count] = 0;
+int bestvio = S.violations();
+while (S.violations() > 0 && it < c) {
+	selectMax(i in 1..3*Count: tabu[i] <=it)(S.violations(Vars[i]))
+	{
+		if (i <= Count)
+			selectMin(v in 0..Length)(S.getAssignDelta(Vars[i],v))  Vars[i] := v;
+		else if (i <= Count + Count)
+			selectMin(v in 0..Width)(S.getAssignDelta(Vars[i],v))  Vars[i] := v;
+		else 
+			selectMin(v in 0..1)(S.getAssignDelta(Vars[i],v))  Vars[i] := v;
+  		tabu[i] = it + t;
+	}
+	if (S.violations() < bestvio)
+		bestvio = S.violations();
+	it++;
+}
+
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << Length << " " << Width << " " << MaxDim << " " << MinDim << " " << " " << Count;
+forall(i in Size) cout << " " << Lengths[i] << " " << Widths[i];
+if (bestvio == 0)
+	forall(i in 1..3*Count) cout << " " << Vars[i];
+cout << endl;

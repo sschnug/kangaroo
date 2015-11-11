@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd cbls && ./cleanup.sh && cd ../;
+
+rm -fr flatzinc/Makefile
+rm -fr Makefile
+

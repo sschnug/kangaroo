@@ -1,0 +1,105 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -i MaxIter [-t TabuTenure]" << endl << endl;	
+	cout << "Input:" << endl;
+	cout << "NumColor EdgeProbability NumVertex, NumEdge EdgeVertexPairs" << endl << endl;
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "NumQueen [QueenPositionsWhenNoViolation]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int t = 0;		//	Tabu length.
+int c = 0;		//	Iteration count.
+
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();	
+}
+
+if (c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+int l = cin.getInt();			//	Number of colors
+float prb = cin.getFloat();		//	Edge probability 
+int n = cin.getInt();			//	Number of vertices.
+int e = cin.getInt();			//	Number of edges.
+
+int starts[1..e];
+int ends[1..e];
+forall(i in 1..e)
+{
+	starts[i] = cin.getInt();
+	ends[i] = cin.getInt();
+}
+
+if (l == 0 || prb == 0.0 || n == 0 || e == 0)
+{
+	cout << endl;
+	cout << "Error input values." << endl;
+	cout << endl;
+	return;
+}
+
+Solver<LS> m();
+
+UniformDistribution distr(1..l);
+var{int} colors[1..n](m,1..l) := distr.get();
+
+ConstraintSystem<LS> S(m);
+forall(i in 1..e)
+{
+	S.post(colors[starts[i]] != colors[ends[i]]);	
+}
+m.close();
+
+int it = 1;
+int tabu[1..n] = 0;
+int bestvio = S.violations();
+while (S.violations() > 0 && it < c) {
+	selectMax(i in 1..n: tabu[i] <= it)(S.violations(colors[i]))
+		selectMin(v in 1..l)(S.getAssignDelta(colors[i],v))
+		{
+			colors[i] := v; 
+			tabu[i] = it + t;
+		}
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+	it++;
+}
+
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << l << " " << prb << " " << n << " " << e;
+forall(i in 1..e) cout << " " << starts[i] << " " << ends[i];
+if (bestvio == 0)
+	forall(i in 1..n) cout << " " << colors[i];
+cout << endl;

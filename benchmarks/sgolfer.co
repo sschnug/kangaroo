@@ -1,0 +1,114 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -p PerGroup -g NumGroup -w NumWeek -i MaxIter [-t TabuLength -r RestartPeriod]" << endl << endl;	
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength RestartPeriod PerGroup NumGroup NumWeek [WeeklyPersonGroups]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int t = 0;	//	Tabu length.
+int c = 0;	//	Iteration count.
+int p = 0;	//	Number per group
+int g = 0;	//	Number of groups.
+int w = 0;	//	Number of weeks.
+int r = 0;
+
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-p")
+		p = args[i+1].toInt();
+	else if (args[i] == "-g")
+		g = args[i+1].toInt();
+	else if (args[i] == "-w")
+		w = args[i+1].toInt();
+	else if (args[i] == "-r")
+		r = args[i+1].toInt();
+}
+if (c == 0 || p == 0 || g == 0 || w == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+int n = p * g;
+Solver<LS> m();
+//	for each week each person, hold the group number assigned.
+var{int} Alloc[0..w*n-1](m,0..g-1);
+
+//for the first week, for each group, assign each person as per index into that group.
+forall(k in 0..g-1) forall(h in 0..p-1) Alloc[k*p + h] := k;
+
+//for the rest of the week, assign a group number randomly.
+RandomPermutation distr(n..w*n-1);
+forall(f in n..w*n - 1) Alloc[f] := distr.get() % g;
+
+ConstraintSystem<LS> S(m);
+//	for each week each group there will be p persons
+forall(j in 1..w-1, k in 0..g-1) S.post(exactly(p, all(i in 0..n-1)Alloc[j*n + i] == k ));
+
+// for each pair of players, they will meet at most once. 
+forall(i in 0..n-1, l in 0..n-1:i<l) S.post(atmost(1, all(j in 0..w-1)(Alloc[j*n + i] == Alloc[j*n + l])));
+m.close();
+
+int it = 1;
+int tabu[0..w*n-1] = 0;
+int bestvio = S.violations();
+int sincerestart = 1;
+while (S.violations() > 0 && it < c) {
+		if (r != 0)
+		{ 
+			if (++sincerestart == r)
+			{
+				RandomPermutation distr(n..w*n-1);
+				forall(f in n..w*n - 1) Alloc[f] := distr.get() % g;
+				sincerestart = 1;
+			}
+		}
+		else
+		{
+			selectMin(x in n..w*n-1: tabu[x] <= it, y in n..w*n-1: x < y && tabu[y] <= it)( S.getSwapDelta(Alloc[x], Alloc[y]) )
+			{
+				Alloc[x] :=: Alloc[y];
+				tabu[x] = it + t;
+				tabu[y] = it + t;
+			}
+		}
+		if (S.violations() < bestvio)
+			bestvio = S.violations();
+		it++;
+}
+
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << p << " " << g << " " << w;
+if (bestvio == 0)
+	forall(x in 0..n*w-1) cout << " " << Alloc[x];
+cout << endl;
+

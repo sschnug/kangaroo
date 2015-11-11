@@ -1,0 +1,83 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+Solver<LS> m();
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n NumElement -i MaxIter [-t TabuTenure]" << endl << endl;
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength NumElement [SeriesElements]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int n = 0;	//	Number of elements
+int c = 0;	// 	Iteration count.
+int t = 0;	//	Tabu length.
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-n")
+		n = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-i")
+		c = args[i+1].toInt();
+}
+if (n == 0 || c == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+range Size = 0..(n-1);
+
+var{int} series[Size](m,Size);
+
+RandomPermutation distr(Size);
+forall(i in Size) series[i] := distr.get();
+
+ConstraintSystem<LS> S(m);
+S.post(alldifferent(all(i in 1..(n-1)) abs(series[i] - series[i-1])));
+m.close();
+
+int it = 1;
+int tabu[Size] = 0;
+int bestvio = S.violations();
+while (S.violations() > 0 && it < c) {
+	selectMin(i in Size: tabu[i] <= it, j in Size: i < j && tabu[j] <= it)
+		(S.getSwapDelta(series[i],series[j]))
+	{
+		series[i] :=: series[j] ; 
+		tabu[i] = it + t;
+		tabu[j] = it + t;
+	}
+	if (S.violations() < bestvio)
+		bestvio = S.violations();
+	it++;
+}
+
+cout << bestvio << " " << it << " ";
+cout << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << n;
+forall(i in Size) cout << " " << series[i];
+cout << endl; 

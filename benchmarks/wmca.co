@@ -1,0 +1,155 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n Interfaces -k Channels -i MaxIter [-t TabuLength]" << endl << endl;	
+	cout << "Input:" << endl;
+	cout << "NodeCount LinkCount ConflictCount" << endl << endl;
+	cout << "First in each line, ZeroBasedIndex LinkStartNode LinkEndNode" << endl;
+	cout << "Next in each line, ZeroBasedIndex ConflictLink1 ConflictLink2" << endl;
+	cout << "Output:" << endl;
+	cout << "BestViolation Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength Interfaces Channels NodeCount LinkCount ConflictCount [BestInterference]" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int n = 0;		//	Radio interface count.
+int k = 0;		//	Channel count.
+int c = 0;		//	Iteration count.
+int t = 0;		//	Tabu length.
+
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-n")
+		n = args[i+1].toInt();
+	else if (args[i] == "-k")
+		k = args[i+1].toInt();
+}
+if (c == 0 || n == 0 || k == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+
+int NodeCount = cin.getInt();
+int LinkCount = cin.getInt();
+int ConflictCount = cin.getInt();
+int Links[0..(LinkCount - 1), 0..1];
+int Conflicts[0..(ConflictCount - 1),0..1];
+int DegreeCount[0..(NodeCount - 1)] = 0;
+int InciLinks[0..(NodeCount - 1),0..(NodeCount - 1)];
+
+forall(i in 0..(LinkCount - 1))
+{
+	int t = cin.getInt();
+	Links[i,0] = cin.getInt();
+	Links[i,1] = cin.getInt();
+	if (i != t || Links[i,0] == Links[i,1] || 
+		Links[i,0] >= NodeCount || Links[i,1] >= NodeCount) 
+	{
+		cout << endl;
+		cout << "Error in input values." << endl;
+		cout << endl;
+	}
+	InciLinks[Links[i,0], DegreeCount[Links[i,0]]] = i;
+	InciLinks[Links[i,1], DegreeCount[Links[i,1]]] = i;
+	DegreeCount[Links[i,0]] = DegreeCount[Links[i,0]] + 1;
+	DegreeCount[Links[i,1]] = DegreeCount[Links[i,1]] + 1;
+}
+
+forall(i in 0..(ConflictCount - 1))
+{
+	int t = cin.getInt();
+	Conflicts[i,0] = cin.getInt();
+	Conflicts[i,1] = cin.getInt();
+}
+
+if (NodeCount == 0 || LinkCount == 0 || ConflictCount == 0)
+{
+	cout << endl;
+	cout << "Error in input values." << endl;
+	cout << endl;
+	return;
+}
+
+Solver<LS> m();
+UniformDistribution dist(0..(k-1));
+var{int} LinkVars[0..(LinkCount - 1)](m,0..k-1) := dist.get();
+
+var{int} NodeChannelCounts[i in 0..(NodeCount - 1),j in 0..(k - 1)](m,0..DegreeCount[i]);
+forall(i in 0..(NodeCount - 1), j in 0..(k - 1)) 
+	NodeChannelCounts[i,j] <- sum(h in 0..(DegreeCount[i] - 1)) (LinkVars[InciLinks[i,h]] == j);
+
+var{int} NodeRadioCount[0..(NodeCount - 1)](m, 0..k);
+forall(i in 0..(NodeCount - 1)) NodeRadioCount[i] <- sum(j in 0..(k - 1)) (NodeChannelCounts[i,j] != 0);
+
+ConstraintSystem<LS> Sc(m);
+forall(i in 0..(NodeCount - 1))
+	Sc.post(NodeRadioCount[i] <= n);
+
+ConstraintSystem<LS> So(m);
+	So.post(sum(j in 0..(ConflictCount - 1)) (LinkVars[Conflicts[j,0]] == LinkVars[Conflicts[j,1]]) == 0);
+m.close();
+
+int it = 1;
+int tabu[0..(LinkCount -1)] = 0;
+int bestvio = Sc.violations();
+int bestsoln = 999999999;
+
+while (Sc.violations() + So.violations() > 0 && it < c) {
+	   if (Sc.violations() == 0)
+		{
+			if (bestsoln > So.violations())
+				bestsoln = So.violations();
+			selectMax(i in 0..(LinkCount - 1) : tabu[i] <= it) (So.violations(LinkVars[i]))
+				selectMin(j in 0..(k-1)) (Sc.getAssignDelta(LinkVars[i], j) +  So.getAssignDelta(LinkVars[i],j))
+				{
+					LinkVars[i] := j;
+					tabu[i] = it + t;
+				}
+		}
+		else
+		{
+			selectMax(i in 0..(LinkCount -1):tabu[i] <= it) (Sc.violations(LinkVars[i]))
+				selectMin(j in 0..(k-1)) (Sc.getAssignDelta(LinkVars[i], j))
+				{
+					LinkVars[i] := j;
+					tabu[i] = it + t;
+				}				
+		}
+		if (Sc.violations() < bestvio)
+			bestvio = Sc.violations();
+	   it++;
+}
+
+cout << bestvio << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t << " " << n << " " << k << " " << NodeCount << " " << LinkCount << " " << ConflictCount;
+if (bestvio == 0)
+	cout << " " << bestsoln;
+cout << endl;
+

@@ -1,0 +1,229 @@
+/********************************************************************************
+  COPYRIGHTS AND TRADEMARKS
+  Copyright (c) 2007, 2008 Dynamic Decision Technologies, Inc.  All rights reserved.  
+
+  Portions of this product are copyright of, and licensed from, Brown University 
+  or the University of Connecticut.  This product also includes open source software 
+  developed by the OpenSSL Project, Free Software Foundation, Inc., the Regents 
+  of the University of California and NetBSD Foundation, Inc.  See copyright notice 
+  included with the software for additional copyright information.
+
+  DYNADEC TM and COMET TM are trademarks of Dynamic Decision Technologies, Inc.
+  ********************************************************************************/
+
+import cotls;
+
+string[] args = System.getArgs();
+if (System.argc() <= 2)
+{
+	cout << endl << endl;
+	cout << "Usage:" << endl;
+	cout << args[0] << " " << args[1] << " -n ProteinLength -p ProteinHPString -f FitnessUseRatio -i MaxIter [-t TabuLength]" << endl << endl;	
+	cout << "Output:" << endl;
+	cout << "EnergyValue Iteration Time" << endl;
+	cout << "MemoryUsedByTheProgram" << endl;
+	cout << "TabuLength" << endl;
+	cout << endl << endl;
+	return;
+}
+
+int p = 0;		//	Protien size.
+int c = 0;		//	Iteration count.
+int f = 1;		//	Fitness usage ratio.
+int t = 0;		//	Tabu length.
+int pi = 0;		//	Protein param index.
+forall(i in 2..(System.argc()-1))
+{
+	if (args[i] == "-i")
+		c = args[i+1].toInt();
+	else if (args[i] == "-t")
+		t = args[i+1].toInt();
+	else if (args[i] == "-n")
+		p = args[i+1].toInt();
+	else if (args[i] == "-p")
+		pi = i + 1;
+}
+
+if (c == 0 || pi == 0 ||f == 0)
+{
+	cout << endl;
+	cout << "Error in commandline parameter/value. Run with parameter " << args[1] << " to see usage." << endl;
+	cout << endl;
+	return;
+}
+bool aa[0..(p-1)]; 
+forall(i in 0..(p-1))
+	if (args[pi].substring(i,1) == "H")
+		aa[i] = true;
+
+Solver<LS> m();
+
+//	3d points
+var{int} x[0..(p-1)](m);
+var{int} y[0..(p-1)](m);
+var{int} z[0..(p-1)](m);
+
+//	all pair distances
+var{int} d[0..(p-1),0..(p-1)](m); 
+forall (i in 0..(p-2)) 
+ forall (j in (i+1)..(p-1))
+	d[i, j] <-(x[i]-x[j])^2+(y[i]-y[j])^2+(z[i]-z[j])^2; 
+
+//	hp energy function
+var{int} e(m) <- (sum(i in 0..(p-3))(sum (j in (i+2)..(p-1): aa[i] && aa[j]) (d[i,j]==2)));
+// all h-h pair distance as a heuristic
+var{int} fh(m) <- (sum(i in 0..(p-3))(sum (j in (i+2)..(p-1): aa[i] && aa[j]) (d[i,j])));
+// all pair distances as a heuristic
+var{int} fhp(m) <- (sum(i in 0..(p-3))(sum (j in (i+2)..(p-1)) (d[i, j])));
+
+//	post heuristic functions as constraints.
+ConstraintSystem<LS> Sfh(m);
+	Sfh.post(fh == 0);
+ConstraintSystem<LS> Sfhp(m);
+	Sfhp.post(fhp == 0);
+m.close();
+
+
+tuple Point { int xx; int yy; int zz;}
+dict{Point -> bool} ad();
+Point ps[0..(p-1)];
+
+int vx[0..11] = [ 0, 0, 0, 0, 1, 1,-1,-1, 1,-1, 1,-1];
+int vy[0..11] = [ 1, 1,-1,-1, 0, 0, 0, 0, 1, 1,-1,-1];
+int vz[0..11] = [ 1,-1, 1,-1, 1,-1, 1,-1, 0, 0, 0, 0];
+
+//	random valid initialisation
+UniformDistribution vrand(0..11);
+Point tp(0,0,0);
+int ti = 0;
+ps[ti] = tp; 
+ad{ps[ti]} = true;
+while(ti < p - 1)
+{
+	int vn = vrand.get();
+	tp = Point(ps[ti].xx + vx[vn], ps[ti].yy + vy[vn], ps[ti].zz + vz[vn]);
+	int tc = 0;
+	while (tc < 12 && ad.hasKey(tp))
+	{
+		++tc;
+		int vn = vrand.get();
+		tp = Point(ps[ti].xx + vx[vn], ps[ti].yy + vy[vn], ps[ti].zz + vz[vn]);
+	}
+	if (tc < 12)
+	{
+		++ti;
+		ps[ti] = tp;
+		ad{tp} = true; 
+	}
+	else
+	{
+		--ti;
+		ad.remove(ps[ti]);
+	}
+}
+with atomic(m)
+{
+	forall(i in 0..(p-1))
+	{
+		x[i] := ps[i].xx;
+		y[i] := ps[i].yy;
+		z[i] := ps[i].zz;
+	}
+}
+
+function int[] makeValArray(int a, int b, int c){
+   int x[0..2];
+   x[0] = a; x[1]=b; x[2]=c;
+   return x;
+}
+
+function var{int} [] makeVarArray(var{int} a, var{int} b, var{int} c){
+   var{int} x[0..2];
+   x[0] = a; x[1]=b; x[2]=c;
+   return x;
+}
+
+function int getFirstNeighbour(int i, int p) {
+	return (i == 0 ? i + 1 : i - 1);
+}
+
+function int getSecondNeighbour(int i, int p) {
+	return i == (p - 1) ? i - 1 : i + 1; 
+}
+
+function bool checkNeighbour(int tx, int ty, int tz, int ttx, int tty, int ttz)
+{
+	int t = tx - ttx + ty - tty + tz - ttz;
+	return t == -2 || t == 0 || t == 2;
+}
+
+
+int it = 1;
+int xtabu[0..(p-1)] = 0;
+int ytabu[0..(p-1)] = 0;
+int ztabu[0..(p-1)] = 0;
+int bestenergy = e;
+var{int} tempvar[0..2];
+int tempval[0..2];
+int tx = 0;
+int ty = 0;
+int tz = 0;
+int k = 0;
+while (it < c) {
+		if (it % f != 0)
+		{
+			selectMin(i in 0..(p-1): xtabu[i] <= it && ytabu[i] <= it && ztabu[i] <= it,				
+				tempvar = makeVarArray(x[i], y[i], z[i]), j in 0..11, 
+				kl = getFirstNeighbour(i,p),kr = getSecondNeighbour(i,p), 
+				tx = x[kl] + vx[j], ty = y[kl] + vy[j], tz = z[kl] + vz[j],
+				tempval = makeValArray(tx, ty, tz) : !ad.hasKey(Point(tx,ty,tz)) &&
+					checkNeighbour(tx,ty,tz,x[kr],y[kr],z[kr])) 
+				(Sfh.getAssignDelta(tempvar, tempval))
+				{
+					ad.remove(Point(x[i],y[i],z[i]));
+					ad{Point(tx,ty,tz)} = true;
+					with atomic(m)
+					{
+						x[i] := tx;
+						y[i] := ty;
+						z[i] := tz;
+					}										
+					xtabu[i] = it + t;
+					ytabu[i] = it + t;
+					ztabu[i] = it + t;
+				}
+		}
+		else
+		{
+			selectMin(i in 0..(p-1): xtabu[i] <= it && ytabu[i] <= it && ztabu[i] <= it,				
+				tempvar = makeVarArray(x[i], y[i], z[i]), j in 0..11, 
+				kl = getFirstNeighbour(i,p),kr = getSecondNeighbour(i,p), 
+				tx = x[kl] + vx[j], ty = y[kl] + vy[j], tz = z[kl] + vz[j],
+				tempval = makeValArray(tx, ty, tz) : !ad.hasKey(Point(tx,ty,tz)) &&
+					checkNeighbour(tx,ty,tz,x[kr],y[kr],z[kr])) 
+				(Sfhp.getAssignDelta(tempvar, tempval))
+				{
+					ad.remove(Point(x[i],y[i],z[i]));
+					ad{Point(tx,ty,tz)} = true;
+					with atomic(m)
+					{
+						x[i] := tx;
+						y[i] := ty;
+						z[i] := tz;
+					}										
+					xtabu[i] = it + t;
+					ytabu[i] = it + t;
+					ztabu[i] = it + t;
+				}
+		}
+		if (e > bestenergy)
+			bestenergy = e;
+//		cout << fh << " " << fhp << " " << e << " " << bestenergy << endl;
+	   it++;
+}
+
+cout << bestenergy << " " << it << " " << System.getCPUTime() / 1000.0 << endl;
+System.exec("/export/home/s1431034/kangaroo/benchmarks/getparentmem");
+cout << t;
+cout << endl;
+

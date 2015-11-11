@@ -1,0 +1,44 @@
+#!/bin/bash
+
+BASEDIR=`pwd`;
+PROPOPT=$1;
+
+
+function gen_makefile {
+  local FILE="Makefile";
+
+  echo > ${FILE};
+  echo "all: kangaroo" >> ${FILE};
+  echo >> ${FILE};
+  echo ".PHONY: kangaroo">> ${FILE};
+  echo "kangaroo:" >> ${FILE};
+  echo -e "\t@\${MAKE} -w -C cbls" >> ${FILE};
+  echo -e "\tmv cbls/libkangaroo.a ." >> ${FILE};
+  echo >> ${FILE};
+  echo ".PHONY: flatzinc">> ${FILE};
+  echo "flatzinc:" >> ${FILE};
+  echo -e "\t@\${MAKE} -w -C flatzinc" >> ${FILE};
+  echo >> ${FILE};
+  echo ".PHONY: clean">> ${FILE};
+  echo "clean:" >> ${FILE};
+  echo -e "\t@\${MAKE} -w -C cbls clean" >> ${FILE};
+  echo >> ${FILE};
+  echo ".PHONY: flatzinc-clean">> ${FILE};
+  echo "flatzinc-clean:" >> ${FILE};
+  echo -e "\t@\${MAKE} -w -C flatzinc clean" >> ${FILE};
+  echo >> ${FILE};
+}
+
+### MAIN ###
+
+cd cbls;
+./configure.sh ${BASEDIR};
+echo "#define PropagationAlgo ${PROPOPT}" > algorithm.option
+cd ../;
+
+cd flatzinc;
+./configure.sh ${BASEDIR};
+cd ../;
+
+gen_makefile;
+
